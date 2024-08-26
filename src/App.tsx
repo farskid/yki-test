@@ -33,6 +33,8 @@ import {
   Tab,
   TabPanel,
   Input as ChakraInput,
+  HStack,
+  Text,
 } from "@chakra-ui/react";
 import { CreatableSelect } from "chakra-react-select";
 import {
@@ -88,6 +90,11 @@ function VocabManager() {
     null
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [isFlashCardOpen, setIsFlashCardOpen] = useState(false);
+  const [flashCards, setFlashCards] = useState<AppVocabObject[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+  console.log(isFlipped);
 
   const queryClient = useQueryClient();
 
@@ -377,13 +384,46 @@ function VocabManager() {
       )
   );
 
+  const openFlashCards = () => {
+    const shuffled = [...vocabs].sort(() => 0.5 - Math.random());
+    setFlashCards(shuffled.slice(0, 30));
+    setCurrentCardIndex(0);
+    setIsFlipped(false);
+    setIsFlashCardOpen(true);
+  };
+
+  const closeFlashCards = () => {
+    setIsFlashCardOpen(false);
+  };
+
+  const nextCard = () => {
+    if (currentCardIndex < flashCards.length - 1) {
+      setCurrentCardIndex(currentCardIndex + 1);
+      setIsFlipped(false);
+    }
+  };
+
+  const prevCard = () => {
+    if (currentCardIndex > 0) {
+      setCurrentCardIndex(currentCardIndex - 1);
+      setIsFlipped(false);
+    }
+  };
+
+  const flipCard = () => {
+    setIsFlipped(!isFlipped);
+  };
+
   return (
     <Box p={4}>
       <Button onClick={onOpen} mb={4} mr={2} isDisabled={isLoading}>
         Add New Vocabulary
       </Button>
-      <Button onClick={onImportOpen} mb={4} isDisabled={isLoading}>
+      <Button onClick={onImportOpen} mb={4} mr={2} isDisabled={isLoading}>
         Import from CSV
+      </Button>
+      <Button onClick={openFlashCards} mb={4} isDisabled={isLoading}>
+        Flash Cards
       </Button>
 
       <Tabs>
@@ -642,6 +682,57 @@ function VocabManager() {
               Cancel
             </Button>
           </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Flash Card Modal */}
+      <Modal isOpen={isFlashCardOpen} onClose={closeFlashCards} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Flash Cards</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {flashCards.length > 0 && (
+              <VStack spacing={4}>
+                <Box
+                  onClick={flipCard}
+                  border="1px solid black"
+                  borderRadius="md"
+                  p={4}
+                  w="100%"
+                  minHeight={100}
+                  cursor="pointer"
+                  bg={isFlipped ? "blue.100" : "white"}
+                >
+                  {isFlipped ? (
+                    <>
+                      <Text>English: {flashCards[currentCardIndex].eng}</Text>
+                      <Text>Farsi: {flashCards[currentCardIndex].fa}</Text>
+                    </>
+                  ) : (
+                    flashCards[currentCardIndex].word
+                  )}
+                </Box>
+                <HStack spacing={4}>
+                  <Button
+                    onClick={prevCard}
+                    isDisabled={currentCardIndex === 0}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    onClick={nextCard}
+                    isDisabled={currentCardIndex === flashCards.length - 1}
+                  >
+                    Next
+                  </Button>
+                </HStack>
+                <Text>
+                  {currentCardIndex + 1} / {flashCards.length}
+                </Text>
+              </VStack>
+            )}
+          </ModalBody>
         </ModalContent>
       </Modal>
     </Box>
