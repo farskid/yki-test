@@ -27,6 +27,12 @@ import {
   TagLabel,
   Wrap,
   WrapItem,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  Input as ChakraInput,
 } from "@chakra-ui/react";
 import { CreatableSelect } from "chakra-react-select";
 import {
@@ -78,6 +84,10 @@ function VocabManager() {
   } = useDisclosure();
   const toast = useToast();
   const [csvContent, setCsvContent] = useState("");
+  const [selectedVocab, setSelectedVocab] = useState<AppVocabObject | null>(
+    null
+  );
+  const [searchQuery, setSearchQuery] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -92,7 +102,8 @@ function VocabManager() {
         ...vocab,
         tags: JSON.parse(vocab.tags),
       }));
-    }
+    },
+    { refetchOnWindowFocus: false }
   );
 
   const uniqueTags = [...new Set(vocabs.flatMap((vocab) => vocab.tags))];
@@ -106,7 +117,13 @@ function VocabManager() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(newVocab),
+          body: JSON.stringify(
+            newVocab.map((item) =>
+              Array.isArray(item)
+                ? item.map((subItem) => subItem.trim())
+                : item.trim()
+            )
+          ),
         }
       );
       if (!response.ok) {
@@ -135,7 +152,11 @@ function VocabManager() {
   const deleteVocabMutation = useMutation(
     async (word: string) => {
       const response = await fetch(
-        `https://farskid-vocabapi.web.val.run?command=deleteVocab&word=${word}`
+        `https://farskid-vocabapi.web.val.run?command=deleteVocab`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ word }),
+        }
       );
       if (!response.ok) {
         throw new Error("Failed to delete vocabulary");
@@ -199,6 +220,102 @@ function VocabManager() {
     }
   );
 
+  const editTagMutation = useMutation(
+    async ({ oldTag, newTag }: { oldTag: string; newTag: string }) => {
+      const response = await fetch(
+        `https://farskid-vocabapi.web.val.run?command=editTag&oldTag=${oldTag}&newTag=${newTag}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to edit tag");
+      }
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("vocabs");
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onError: (error: any) => {
+        toast({
+          title: "Failed to edit tag",
+          description: error?.message ?? "Unknown error",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+    }
+  );
+
+  const deleteTagMutation = useMutation(
+    async (tag: string) => {
+      const response = await fetch(
+        `https://farskid-vocabapi.web.val.run?command=deleteTag&tag=${tag}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to delete tag");
+      }
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("vocabs");
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onError: (error: any) => {
+        toast({
+          title: "Failed to delete tag",
+          description: error?.message ?? "Unknown error",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+    }
+  );
+
+  const editVocabMutation = useMutation(
+    async ({
+      word,
+      eng,
+      fa,
+      tags,
+    }: {
+      word: string;
+      eng: string;
+      fa: string;
+      tags: string[];
+    }) => {
+      const response = await fetch(
+        `https://farskid-vocabapi.web.val.run?command=editVocab`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ word, eng, fa, tags }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error("Failed to edit vocabulary");
+      }
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries("vocabs");
+        onEditClose();
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onError: (error: any) => {
+        toast({
+          title: "Failed to edit vocabulary",
+          description: error?.message ?? "Unknown error",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+      },
+    }
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
@@ -217,6 +334,49 @@ function VocabManager() {
     importCSVMutation.mutate(csvContent);
   };
 
+  const handleEditTag = (oldTag: string) => {
+    const newTag = prompt("Enter new tag name:", oldTag);
+    if (newTag && newTag !== oldTag) {
+      editTagMutation.mutate({ oldTag, newTag });
+    }
+  };
+
+  const handleDeleteTag = (tag: string) => {
+    if (window.confirm(`Are you sure you want to delete the tag "${tag}"?`)) {
+      deleteTagMutation.mutate(tag);
+    }
+  };
+
+  const handleEditOpen = (vocab: AppVocabObject) => {
+    setSelectedVocab(vocab);
+    onEditOpen();
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.target as HTMLFormElement);
+    const word = formData.get("word") as string;
+    const eng = formData.get("eng") as string;
+    const fa = formData.get("fa") as string;
+    const tags = formData.getAll("tags").filter(Boolean) as string[];
+    editVocabMutation.mutate({ word, eng, fa, tags });
+
+    // Implement the editVocabMutation here
+    // For now, we'll just log the edited data
+    console.log("Edited vocab:", { word, eng, fa, tags });
+    onEditClose();
+  };
+
+  const filteredVocabs = vocabs.filter(
+    (vocab) =>
+      vocab.word.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vocab.eng.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vocab.fa.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vocab.tags.some((tag) =>
+        tag.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+  );
+
   return (
     <Box p={4}>
       <Button onClick={onOpen} mb={4} mr={2} isDisabled={isLoading}>
@@ -225,56 +385,118 @@ function VocabManager() {
       <Button onClick={onImportOpen} mb={4} isDisabled={isLoading}>
         Import from CSV
       </Button>
-      <TableContainer>
-        <Table variant="simple">
-          <Thead>
-            <Tr>
-              <Th>Word</Th>
-              <Th>English</Th>
-              <Th>Farsi</Th>
-              <Th>Tags</Th>
-              <Th>Action</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {vocabs.map((vocab, index) => (
-              <Tr key={index}>
-                <Td>{vocab.word}</Td>
-                <Td>{vocab.eng}</Td>
-                <Td>{vocab.fa}</Td>
-                <Td>
-                  <Wrap>
-                    {vocab.tags.map((tag, tagIndex) => (
-                      <WrapItem key={tagIndex}>
-                        <Tag size="sm">
-                          <TagLabel>{tag}</TagLabel>
-                        </Tag>
-                      </WrapItem>
-                    ))}
-                  </Wrap>
-                </Td>
-                <Td display="flex" gap={2}>
-                  <Button
-                    size="sm"
-                    colorScheme="red"
-                    onClick={() => handleDelete(vocab.word)}
-                    isLoading={deleteVocabMutation.isLoading}
-                  >
-                    x
-                  </Button>
-                  <Button
-                    size="sm"
-                    colorScheme="blue"
-                    onClick={() => onEditOpen()}
-                  >
-                    Edit
-                  </Button>
-                </Td>
-              </Tr>
-            ))}
-          </Tbody>
-        </Table>
-      </TableContainer>
+
+      <Tabs>
+        <TabList>
+          <Tab>All Words</Tab>
+          <Tab>Tags</Tab>
+        </TabList>
+
+        <TabPanels>
+          <TabPanel>
+            <ChakraInput
+              placeholder="Search words, meanings, or tags..."
+              mb={4}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <TableContainer>
+              <Table variant="simple">
+                <Thead>
+                  <Tr>
+                    <Th>Word</Th>
+                    <Th>English</Th>
+                    <Th>Farsi</Th>
+                    <Th>Tags</Th>
+                    <Th>Action</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {filteredVocabs.map((vocab, index) => (
+                    <Tr key={index}>
+                      <Td>{vocab.word}</Td>
+                      <Td>{vocab.eng}</Td>
+                      <Td>{vocab.fa}</Td>
+                      <Td>
+                        <Wrap>
+                          {vocab.tags.map((tag, tagIndex) => (
+                            <WrapItem key={tagIndex}>
+                              <Tag size="sm">
+                                <TagLabel>{tag}</TagLabel>
+                              </Tag>
+                            </WrapItem>
+                          ))}
+                        </Wrap>
+                      </Td>
+                      <Td display="flex" gap={2}>
+                        <Button
+                          size="sm"
+                          colorScheme="red"
+                          onClick={() => handleDelete(vocab.word)}
+                          isLoading={deleteVocabMutation.isLoading}
+                        >
+                          x
+                        </Button>
+                        <Button
+                          size="sm"
+                          colorScheme="blue"
+                          onClick={() => handleEditOpen(vocab)}
+                        >
+                          Edit
+                        </Button>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          </TabPanel>
+          <TabPanel>
+            <TableContainer>
+              <Table variant="simple">
+                <Thead>
+                  <Tr>
+                    <Th>Tag</Th>
+                    <Th>Word Count</Th>
+                    <Th>Action</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {uniqueTags.map((tag, index) => (
+                    <Tr key={index}>
+                      <Td>{tag}</Td>
+                      <Td>
+                        {
+                          vocabs.filter((vocab) => vocab.tags.includes(tag))
+                            .length
+                        }
+                      </Td>
+                      <Td display="flex" gap={2}>
+                        <Button
+                          size="sm"
+                          colorScheme="blue"
+                          onClick={() => handleEditTag(tag)}
+                          isLoading={editTagMutation.isLoading}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          colorScheme="red"
+                          onClick={() => handleDeleteTag(tag)}
+                          isLoading={deleteTagMutation.isLoading}
+                        >
+                          Delete
+                        </Button>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
 
       {/* Add new vocab modal */}
       <Modal isOpen={isOpen} onClose={onClose} size="2xl">
@@ -336,25 +558,50 @@ function VocabManager() {
           <ModalHeader>Edit Vocabulary</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
-            <form onSubmit={handleSubmit} id="form">
+            <form onSubmit={handleEditSubmit} id="editForm">
               <VStack spacing={4}>
                 <FormControl>
                   <FormLabel>Word</FormLabel>
-                  <Input name="word" required />
+                  <Input
+                    name="word"
+                    required
+                    defaultValue={selectedVocab?.word}
+                    autoFocus
+                  />
                 </FormControl>
                 <FormControl>
                   <FormLabel>English</FormLabel>
-                  <Input name="eng" required />
+                  <Input
+                    name="eng"
+                    required
+                    defaultValue={selectedVocab?.eng}
+                  />
                 </FormControl>
                 <FormControl>
                   <FormLabel>Farsi</FormLabel>
-                  <Input name="fa" required />
+                  <Input name="fa" required defaultValue={selectedVocab?.fa} />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Tags</FormLabel>
+                  <CreatableSelect
+                    isMulti
+                    name="tags"
+                    options={uniqueTags.map((tag) => ({
+                      value: tag,
+                      label: tag,
+                    }))}
+                    defaultValue={selectedVocab?.tags.map((tag) => ({
+                      value: tag,
+                      label: tag,
+                    }))}
+                    placeholder="Select or create tags"
+                  />
                 </FormControl>
               </VStack>
             </form>
           </ModalBody>
           <ModalFooter>
-            <Button colorScheme="blue" mr={3} type="submit" form="form">
+            <Button colorScheme="blue" mr={3} type="submit" form="editForm">
               Submit
             </Button>
             <Button variant="ghost" onClick={onEditClose}>
@@ -378,6 +625,7 @@ function VocabManager() {
                 onChange={(e) => setCsvContent(e.target.value)}
                 placeholder="word,eng,fa,tags"
                 rows={10}
+                autoFocus
               />
             </FormControl>
           </ModalBody>
